@@ -1,18 +1,14 @@
 from flask import Flask, render_template, request, redirect
 from datetime import datetime, timedelta
-import sqlite3, csv, re
+import csv, re
+from db import get_connection
 
 app = Flask(__name__)
 
 # Archivos
-FERIADOS = 'data/feriados.csv'
 LOG = 'changelog/log.md'
 
 # Utilidades
-def cargar_feriados():
-    with open(FERIADOS, newline='') as f:
-        return set(row[0] for row in csv.reader(f) if row)
-
 def obtener_fechas_semana(numero_semana, año=datetime.now().year):
     lunes = datetime.strptime(f'{año}-W{int(numero_semana)}-1', "%Y-W%W-%w")
     dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie']
@@ -26,7 +22,7 @@ def index():
 
 @app.route('/pagos', methods=['GET', 'POST'])
 def pagos():
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     if request.method == 'POST':
@@ -36,11 +32,11 @@ def pagos():
         monto = float(request.form['monto'])
         cantidad = int(request.form['cantidad'])
 
-        cursor.execute("INSERT INTO pagos (fecha, tipo, monto, cantidad) VALUES (?, ?, ?, ?)",
+        cursor.execute("INSERT INTO pagos (fecha, tipo, monto, cantidad) VALUES (%s, %s, %s, %s)",
                        (fecha_iso, tipo, monto, cantidad))
 
         detalle = f"{fecha_form} | {tipo} x {monto}"
-        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
                        (datetime.now().isoformat(), 'Pago registrado', detalle))
 
         conn.commit()
@@ -55,6 +51,7 @@ def pagos():
     cursor.execute("SELECT tipo, SUM(monto) FROM pagos GROUP BY tipo")
     totales = dict(cursor.fetchall())
 
+    cursor.close()
     conn.close()
     return render_template('pagos.html',
                            pagos=pagos,
@@ -62,7 +59,7 @@ def pagos():
 
 @app.route('/planificar', methods=['GET', 'POST'])
 def planificar():
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     # Calcular semana actual desde GET o POST
@@ -81,16 +78,17 @@ def planificar():
             almuerzo = 1 if request.form.get(f'almuerzo{i}') == 'on' else 0
             cena = 1 if request.form.get(f'cena{i}') == 'on' else 0
             if fecha_iso not in feriados:
-                cursor.execute("INSERT INTO pedidos (fecha, semana, almuerzo, cena) VALUES (?, ?, ?, ?)",
+                cursor.execute("INSERT INTO pedidos (fecha, semana, almuerzo, cena) VALUES (%s, %s, %s, %s)",
                                (fecha_iso, semana_actual, almuerzo, cena))
-                cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (?, ?, ?)",
+                cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
                                (datetime.now().isoformat(), 'Pedido', f'{fecha_form} | A:{almuerzo} C:{cena}'))
         conn.commit()
 
     # Obtener pedidos guardados para esa semana
-    cursor.execute("SELECT fecha, almuerzo, cena FROM pedidos WHERE semana = ?", (semana_actual,))
+    cursor.execute("SELECT fecha, almuerzo, cena FROM pedidos WHERE semana = %s", (semana_actual,))
     pedidos_guardados = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
 
+    cursor.close()
     conn.close()
     return render_template('planificar.html',
                            semana=semana_actual,
@@ -100,7 +98,7 @@ def planificar():
 
 @app.route('/planificar_editar', methods=['GET', 'POST'])
 def planificar_editar():
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     if request.method == 'POST':
@@ -109,29 +107,30 @@ def planificar_editar():
         almuerzo = 1 if request.form.get('almuerzo') == 'on' else 0
         cena = 1 if request.form.get('cena') == 'on' else 0
 
-        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE fecha = ?", (fecha_iso,))
+        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE fecha = %s", (fecha_iso,))
         existe = cursor.fetchone()[0]
 
         if existe:
             cursor.execute("""
                 UPDATE pedidos
-                SET almuerzo = ?, cena = ?
-                WHERE fecha = ?
+                SET almuerzo = %s, cena = %s
+                WHERE fecha = %s
             """, (almuerzo, cena, fecha_iso))
             accion = "Pedido editado"
         else:
             semana = datetime.strptime(fecha_iso, "%Y-%m-%d").isocalendar().week
             cursor.execute("""
                 INSERT INTO pedidos (fecha, semana, almuerzo, cena)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s)
             """, (fecha_iso, semana, almuerzo, cena))
             accion = "Pedido registrado"
 
         detalle = f"{fecha_form} | A:{almuerzo} C:{cena}"
-        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
                        (datetime.now().isoformat(), accion, detalle))
 
         conn.commit()
+        cursor.close()
         conn.close()
         return redirect('/planificar_editar')
 
@@ -140,12 +139,13 @@ def planificar_editar():
     pedidos_raw = cursor.fetchall()
     pedidos = [(datetime.strptime(p[0], "%Y-%m-%d").strftime("%d-%m-%Y"), p[1], p[2]) for p in pedidos_raw]
 
+    cursor.close()
     conn.close()
     return render_template('planificar_editar.html', pedidos=pedidos)
 
 @app.route('/entregas', methods=['GET', 'POST'])
 def entregas():
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     # Día actual o recibido por GET
@@ -169,26 +169,27 @@ def entregas():
         entregado_cena = 1 if request.form.get('entregado_cena') == 'on' else 0
         observaciones = request.form['observaciones']
 
-        cursor.execute("SELECT COUNT(*) FROM entregas WHERE fecha = ?", (fecha_iso,))
+        cursor.execute("SELECT COUNT(*) FROM entregas WHERE fecha = %s", (fecha_iso,))
         existe = cursor.fetchone()[0]
 
         if existe:
             cursor.execute("""
                 UPDATE entregas
-                SET entregado_almuerzo = ?, entregado_cena = ?, observaciones = ?
-                WHERE fecha = ?
+                SET entregado_almuerzo = %s, entregado_cena = %s, observaciones = %s
+                WHERE fecha = %s
             """, (entregado_almuerzo, entregado_cena, observaciones, fecha_iso))
             accion = "Entrega editada"
         else:
             cursor.execute("""
                 INSERT INTO entregas (fecha, entregado_almuerzo, entregado_cena, observaciones)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s)
             """, (fecha_iso, entregado_almuerzo, entregado_cena, observaciones))
             accion = "Entrega registrada"
 
         detalle = f"{fecha_form} | A:{entregado_almuerzo} C:{entregado_cena} | Obs:{observaciones}"
-        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
                        (datetime.now().isoformat(), accion, detalle))
+        cursor.close()
         conn.commit()
         return redirect(f'/entregas?fecha={fecha_form}')
 
@@ -197,10 +198,10 @@ def entregas():
     pedido = (0, 0)
 
     if not bloqueado:
-        cursor.execute("SELECT entregado_almuerzo, entregado_cena, observaciones FROM entregas WHERE fecha = ?", (fecha_iso,))
+        cursor.execute("SELECT entregado_almuerzo, entregado_cena, observaciones FROM entregas WHERE fecha = %s", (fecha_iso,))
         entrega = cursor.fetchone() or (0, 0, '')
 
-        cursor.execute("SELECT almuerzo, cena FROM pedidos WHERE fecha = ?", (fecha_iso,))
+        cursor.execute("SELECT almuerzo, cena FROM pedidos WHERE fecha = %s", (fecha_iso,))
         pedido = cursor.fetchone() or (0, 0)
 
     actual_dt = datetime.strptime(fecha_iso, "%Y-%m-%d")
@@ -217,6 +218,7 @@ def entregas():
         siguiente_dt += timedelta(days=1)
     siguiente_form = siguiente_dt.strftime("%d-%m-%Y")
 
+    cursor.close()
     conn.close()
     return render_template('entregas.html',
                            fecha=fecha_form,
@@ -228,7 +230,7 @@ def entregas():
 
 @app.route('/entregas_editar', methods=['GET', 'POST'])
 def entregas_editar():
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     if request.method == 'POST':
@@ -238,28 +240,29 @@ def entregas_editar():
         entregado_cena = 1 if request.form.get('entregado_cena') == 'on' else 0
         observaciones = request.form['observaciones']
 
-        cursor.execute("SELECT COUNT(*) FROM entregas WHERE fecha = ?", (fecha_iso,))
+        cursor.execute("SELECT COUNT(*) FROM entregas WHERE fecha = %s", (fecha_iso,))
         existe = cursor.fetchone()[0]
 
         if existe:
             cursor.execute("""
                 UPDATE entregas
-                SET entregado_almuerzo = ?, entregado_cena = ?, observaciones = ?
-                WHERE fecha = ?
+                SET entregado_almuerzo = %s, entregado_cena = %s, observaciones = %s
+                WHERE fecha = %s
             """, (entregado_almuerzo, entregado_cena, observaciones, fecha_iso))
             accion = "Entrega editada"
         else:
             cursor.execute("""
                 INSERT INTO entregas (fecha, entregado_almuerzo, entregado_cena, observaciones)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s)
             """, (fecha_iso, entregado_almuerzo, entregado_cena, observaciones))
             accion = "Entrega registrada"
 
         detalle = f"{fecha_form} | A:{entregado_almuerzo} C:{entregado_cena} | Obs:{observaciones}"
-        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
                        (datetime.now().isoformat(), accion, detalle))
 
         conn.commit()
+        cursor.close()
         conn.close()
         return redirect('/entregas_editar')
 
@@ -268,12 +271,13 @@ def entregas_editar():
     entregas_raw = cursor.fetchall()
     entregas = [(datetime.strptime(e[0], "%Y-%m-%d").strftime("%d-%m-%Y"), e[1], e[2], e[3]) for e in entregas_raw]
 
+    cursor.close()
     conn.close()
     return render_template('entregas_editar.html', entregas=entregas)
 
 @app.route('/entregas_pendientes')
 def entregas_pendientes():
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     hoy_iso = datetime.now().strftime("%Y-%m-%d")
@@ -282,7 +286,7 @@ def entregas_pendientes():
     cursor.execute("""
         SELECT fecha, almuerzo, cena
         FROM pedidos
-        WHERE fecha <= ?
+        WHERE fecha <= %s
         ORDER BY fecha ASC
     """, (hoy_iso,))
     pedidos = cursor.fetchall()
@@ -298,12 +302,13 @@ def entregas_pendientes():
             fecha_fmt = datetime.strptime(fecha_iso, "%Y-%m-%d").strftime("%d-%m-%Y")
             pendientes.append((fecha_fmt, a_pedido, c_pedido, a_entregado, c_entregado))
 
+    cursor.close()
     conn.close()
     return render_template('entregas_pendientes.html', pendientes=pendientes)
 
 @app.route('/dashboard')
 def dashboard():
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     # Todos los pedidos
@@ -361,6 +366,7 @@ def dashboard():
         if c_entregado and not c_pedido:
             errores.append(f"{fecha_fmt}: Cena entregada sin pedido")
 
+    cursor.close()
     conn.close()
 
     return render_template('dashboard.html',
@@ -393,7 +399,7 @@ def log_exportado():
     desde_form = request.args.get('desde')  # dd-mm-aaaa
     hasta_form = request.args.get('hasta')  # dd-mm-aaaa
 
-    conn = sqlite3.connect("dietservice.db", check_same_thread=False)
+    conn = get_connection()
     cursor = conn.cursor()
 
     if desde_form and hasta_form:
@@ -404,7 +410,7 @@ def log_exportado():
         cursor.execute("""
             SELECT timestamp, accion, detalle
             FROM log
-            WHERE DATE(timestamp) BETWEEN ? AND ?
+            WHERE DATE(timestamp) BETWEEN %s AND %s
             ORDER BY timestamp ASC
         """, (desde_iso, hasta_iso))
         registros_raw = cursor.fetchall()
@@ -417,6 +423,7 @@ def log_exportado():
     else:
         registros = []
 
+    cursor.close()
     conn.close()
     return render_template('log_exportado.html',
                            registros=registros,
