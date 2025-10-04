@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Editar entregas registradas{% endblock %}
+{% block content %}
+
+<h2 class="mb-4">Editar entregas registradas</h2>
+
+<form method="POST" class="border p-4 rounded bg-white shadow-sm mb-5">
+    <div class="mb-3">
+        <label for="fecha" class="form-label">Fecha</label>
+        <input type="text" name="fecha" id="fecha" class="form-control" placeholder="dd-mm-aaaa" required>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Entregado</label><br>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="entregado_almuerzo" id="almuerzo">
+            <label class="form-check-label" for="almuerzo">Almuerzo</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="entregado_cena" id="cena">
+            <label class="form-check-label" for="cena">Cena</label>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label for="observaciones" class="form-label">Observaciones</label>
+        <textarea name="observaciones" id="observaciones" class="form-control" rows="3" placeholder="Notas, excepciones, etc."></textarea>
+    </div>
+
+    <button type="submit" class="btn btn-success">Guardar cambios</button>
+</form>
+
+<h3 class="mb-3">Entregas registradas</h3>
+<div class="table-responsive">
+    <table class="table table-bordered table-striped">
+        <thead class="table-light">
+            <tr>
+                <th>Fecha</th>
+                <th>Almuerzo</th>
+                <th>Cena</th>
+                <th>Observaciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entregas %}
+            <tr>
+                <td>{{ e[0] }}</td>
+                <td>{{ '✅' if e[1] else '❌' }}</td>
+                <td>{{ '✅' if e[2] else '❌' }}</td>
+                <td>{{ e[3] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<a href="/" class="btn btn-secondary mt-4">Volver al inicio</a>
+
+{% endblock %}

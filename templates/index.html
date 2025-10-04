@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Inicio{% endblock %}
+{% block content %}
+
+<h1 class="mb-4">Bienvenido al sistema de control de alimentación</h1>
+
+<div class="list-group">
+    <a href="/dashboard" class="list-group-item list-group-item-action">📊 Estado general</a>
+    <a href="/pagos" class="list-group-item list-group-item-action">💰 Pagos</a>
+    <a href="/planificar" class="list-group-item list-group-item-action">📅 Pedidos semanales</a>
+    <a href="/planificar_editar" class="list-group-item list-group-item-action">✏️ Editar pedidos existentes</a>
+    <a href="/entregas" class="list-group-item list-group-item-action">📦 Entregas diarias</a>
+    <a href="/entregas_editar" class="list-group-item list-group-item-action">🛠️ Editar entregas registradas</a>
+    <a href="/entregas_pendientes" class="list-group-item list-group-item-action">⏳ Entregas pendientes</a>
+    <a href="/log" class="list-group-item list-group-item-action">📜 Ver changelog editorial</a>
+    <a href="/log_exportado" class="list-group-item list-group-item-action">📤 Exportar changelog por rango</a>
+</div>
+
+{% endblock %}

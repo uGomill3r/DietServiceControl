@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Entrega del {{ fecha }}{% endblock %}
+{% block content %}
+
+<h2 class="mb-4">Entrega del {{ fecha }}</h2>
+
+<div class="d-flex justify-content-between mb-3">
+    <a href="/entregas?fecha={{ anterior }}" class="btn btn-outline-primary">← Día anterior</a>
+    <a href="/entregas?fecha={{ siguiente }}" class="btn btn-outline-primary">Día siguiente →</a>
+</div>
+
+{% if bloqueado %}
+    <div class="alert alert-warning">
+        <strong>Este día no está habilitado para registrar entregas (sábado o domingo).</strong>
+    </div>
+{% else %}
+<form method="POST" class="border p-4 rounded bg-white shadow-sm">
+    <input type="hidden" name="fecha" value="{{ fecha }}">
+
+    <p class="mb-3"><strong>Pedido registrado:</strong>
+        {% if pedido[0] %}
+            <span class="badge bg-success">✅ Almuerzo</span>
+        {% else %}
+            <span class="badge bg-danger">❌ Almuerzo</span>
+        {% endif %}
+        {% if pedido[1] %}
+            <span class="badge bg-success">✅ Cena</span>
+        {% else %}
+            <span class="badge bg-danger">❌ Cena</span>
+        {% endif %}
+    </p>
+
+    <div class="mb-3">
+        <label class="form-label">Confirmar entrega:</label><br>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="entregado_almuerzo" id="almuerzo" {% if entrega[0] %}checked{% endif %}>
+            <label class="form-check-label" for="almuerzo">Almuerzo</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="entregado_cena" id="cena" {% if entrega[1] %}checked{% endif %}>
+            <label class="form-check-label" for="cena">Cena</label>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label for="observaciones" class="form-label">Observaciones:</label>
+        <textarea name="observaciones" id="observaciones" class="form-control" rows="3">{{ entrega[2] }}</textarea>
+    </div>
+
+    <button type="submit" class="btn btn-success">Guardar entrega</button>
+</form>
+{% endif %}
+
+<div class="mt-4">
+    <a href="/" class="btn btn-secondary">Volver al inicio</a>
+</div>
+
+{% endblock %}
