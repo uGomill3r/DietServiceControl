@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, url_for
 from datetime import datetime, date, timedelta
-import csv, re
+from collections import defaultdict
+import re
 from db import get_connection
 
 app = Flask(__name__)
@@ -21,8 +22,11 @@ def normalizar_fecha(fecha):
     if isinstance(fecha, datetime):
         return fecha.date()
     if isinstance(fecha, str):
-        return datetime.strptime(fecha, "%Y-%m-%d").date()
-    raise ValueError(f"Formato de fecha no reconocido: {fecha}")
+        try:
+            return datetime.strptime(fecha, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError(f"Fecha en formato incorrecto para normalizar_fecha: {fecha}")
+    raise ValueError(f"Tipo de fecha no reconocido: {type(fecha)}")
 
 def formatear_fecha(fecha):
     """
@@ -31,10 +35,175 @@ def formatear_fecha(fecha):
     fecha_date = normalizar_fecha(fecha)
     return fecha_date.strftime("%d-%m-%Y")
 
+def normalizar_fecha_ddmmaaaa(fecha_str):
+    """
+    Convierte una fecha en formato dd-mm-aaaa a objeto date.
+    """
+    return datetime.strptime(fecha_str, "%d-%m-%Y").date()
+
+def estado_textual(fecha_obj, pedido, entrega, feriado):
+    if feriado:
+        return "Feriado"
+    if pedido == (0, 0):
+        return "Sin pedido registrado"
+
+    a_pedido, c_pedido = pedido
+    a_entregado, c_entregado = entrega
+
+    pendientes = []
+    if a_pedido and not a_entregado:
+        pendientes.append("almuerzo")
+    if c_pedido and not c_entregado:
+        pendientes.append("cena")
+
+    if pendientes and fecha_obj < datetime.now().date():
+        return f"Entrega pendiente: {', '.join(pendientes)}"
+    if not pendientes:
+        return "Entregado"
+
+    return ""
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return redirect(url_for('dashboard'))
+
+@app.route('/semana', methods=['GET'])
+def vista_semanal():
+    def fecha_iso(fecha):
+        return normalizar_fecha(fecha).strftime("%Y-%m-%d")
+
+    def clave_fecha(fecha):
+        return normalizar_fecha(fecha)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    semana_actual = int(request.args.get('semana', datetime.now().isocalendar().week))
+    dias, fechas = obtener_fechas_semana(semana_actual)
+
+    # Pedidos por fecha (incluye feriado)
+    fecha_inicio = normalizar_fecha_ddmmaaaa(fechas[0]).strftime("%Y-%m-%d")
+    fecha_fin = normalizar_fecha_ddmmaaaa(fechas[-1]).strftime("%Y-%m-%d")
+    cursor.execute("SELECT fecha, almuerzo, cena, feriado FROM pedidos WHERE fecha BETWEEN %s AND %s",
+                   (fecha_inicio, fecha_fin))
+    pedidos_raw = cursor.fetchall()
+    pedidos = {}
+    for row in pedidos_raw:
+        fecha = normalizar_fecha(row[0])  # clave consistente con fechas
+        pedidos[fecha] = {
+            'almuerzo': row[1],
+            'cena': row[2],
+            'feriado': row[3]
+        }
+
+    # Entregas por fecha
+    cursor.execute("SELECT fecha, entregado_almuerzo, entregado_cena FROM entregas")
+    entregas = {normalizar_fecha(row[0]): (row[1], row[2]) for row in cursor.fetchall()}
+
+    semana_data = []
+    hoy = datetime.now().date()
+
+    for i, fecha_str in enumerate(fechas):
+        fecha_obj = normalizar_fecha_ddmmaaaa(fecha_str)
+
+        pedido = pedidos.get(fecha_obj, {'almuerzo': 0, 'cena': 0, 'feriado': False})
+        entrega = entregas.get(fecha_obj, (0, 0))
+
+        estado = {}
+        for comida, p, e in zip(['almuerzo', 'cena'], [pedido['almuerzo'], pedido['cena']], entrega):
+            if p == 0:
+                color = 'light'
+            elif e == 1:
+                color = 'success'
+            elif fecha_obj < hoy:
+                color = 'danger'
+            else:
+                color = 'warning'
+            estado[comida] = color
+
+        texto_estado = estado_textual(fecha_obj, (pedido['almuerzo'], pedido['cena']), entrega, pedido['feriado'])
+
+        semana_data.append({
+            'dia': dias[i],
+            'fecha': fecha_str,
+            'estado': estado,
+            'feriado': pedido['feriado'],
+            'texto_estado': texto_estado
+        })
+
+    cursor.close()
+    conn.close()
+    return render_template('semana.html',
+                           semana=semana_actual,
+                           semana_data=semana_data)
+
+@app.route('/editar_dia', methods=['GET', 'POST'])
+def editar_dia():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if request.method == 'POST':
+        fecha_form = request.form['fecha']
+        fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
+
+        almuerzo = 1 if request.form.get('almuerzo') == 'on' else 0
+        cena = 1 if request.form.get('cena') == 'on' else 0
+        obs_pedido = request.form.get('obs_pedido', '')
+
+        entregado_almuerzo = 1 if request.form.get('entregado_almuerzo') == 'on' else 0
+        entregado_cena = 1 if request.form.get('entregado_cena') == 'on' else 0
+        obs_entrega = request.form.get('obs_entrega', '')
+
+        feriado = request.form.get('feriado') == 'on'
+
+        # Pedido
+        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE fecha = %s", (fecha_iso,))
+        if cursor.fetchone()[0]:
+            cursor.execute("UPDATE pedidos SET almuerzo = %s, cena = %s, feriado = %s WHERE fecha = %s",
+                           (almuerzo, cena, feriado, fecha_iso))
+        else:
+            semana = normalizar_fecha(fecha_iso).isocalendar().week
+            cursor.execute("INSERT INTO pedidos (fecha, semana, almuerzo, cena, feriado) VALUES (%s, %s, %s, %s, %s)",
+                           (fecha_iso, semana, almuerzo, cena, feriado))
+            print (f"Feriado activado para {fecha_form}")
+
+        # Entrega
+        cursor.execute("SELECT COUNT(*) FROM entregas WHERE fecha = %s", (fecha_iso,))
+        if cursor.fetchone()[0]:
+            cursor.execute("UPDATE entregas SET entregado_almuerzo = %s, entregado_cena = %s, observaciones = %s WHERE fecha = %s",
+                           (entregado_almuerzo, entregado_cena, obs_entrega, fecha_iso))
+        else:
+            cursor.execute("INSERT INTO entregas (fecha, entregado_almuerzo, entregado_cena, observaciones) VALUES (%s, %s, %s, %s)",
+                           (fecha_iso, entregado_almuerzo, entregado_cena, obs_entrega))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return redirect('/semana')
+
+    # GET
+    fecha_form = request.args.get('fecha')
+    fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
+
+    cursor.execute("SELECT almuerzo, cena, feriado FROM pedidos WHERE fecha = %s", (fecha_iso,))
+    row = cursor.fetchone()
+    if row:
+        pedido = (row[0], row[1])
+        feriado = row[2]
+    else:
+        pedido = (0, 0)
+        feriado = False
+
+    cursor.execute("SELECT entregado_almuerzo, entregado_cena, observaciones FROM entregas WHERE fecha = %s", (fecha_iso,))
+    entrega = cursor.fetchone() or (0, 0, '')
+
+    cursor.close()
+    conn.close()
+    return render_template('editar_dia.html',
+                           fecha=fecha_form,
+                           pedido=pedido,
+                           entrega=entrega,
+                           feriado=feriado)
 
 @app.route('/pagos', methods=['GET', 'POST'])
 def pagos():
@@ -72,269 +241,6 @@ def pagos():
     return render_template('pagos.html',
                            pagos=pagos,
                            totales=totales)
-
-@app.route('/planificar', methods=['GET', 'POST'])
-def planificar():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # Calcular semana actual desde GET o POST
-    if request.method == 'POST':
-        semana_actual = int(request.form['semana'])
-    else:
-        semana_actual = int(request.args.get('semana', datetime.now().isocalendar().week))
-
-    dias, fechas = obtener_fechas_semana(semana_actual)  # ya están en dd-mm-aaaa
-    cursor.execute("SELECT fecha FROM feriados")
-    feriados_raw = cursor.fetchall()
-    feriados = set(normalizar_fecha(row[0]).strftime("%Y-%m-%d") for row in feriados_raw)
-
-    if request.method == 'POST':
-        for i in range(5):
-            fecha_form = request.form[f'fecha{i}']  # dd-mm-aaaa
-            fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
-            almuerzo = 1 if request.form.get(f'almuerzo{i}') == 'on' else 0
-            cena = 1 if request.form.get(f'cena{i}') == 'on' else 0
-            if fecha_iso not in feriados:
-                cursor.execute("INSERT INTO pedidos (fecha, semana, almuerzo, cena) VALUES (%s, %s, %s, %s)",
-                               (fecha_iso, semana_actual, almuerzo, cena))
-                cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
-                               (datetime.now().isoformat(), 'Pedido', f'{fecha_form} | A:{almuerzo} C:{cena}'))
-        conn.commit()
-
-    # Obtener pedidos guardados para esa semana
-    cursor.execute("SELECT fecha, almuerzo, cena FROM pedidos WHERE semana = %s", (semana_actual,))
-    pedidos_guardados_raw = cursor.fetchall()
-
-    # Convertir fechas a dd-mm-aaaa para visualización
-    pedidos_guardados = {
-        fecha_formateada: (row[1], row[2])
-        for row in pedidos_guardados_raw
-        for fecha_formateada in [formatear_fecha(normalizar_fecha(row[0]))]
-    }
-
-    cursor.close()
-    conn.close()
-    return render_template('planificar.html',
-                           semana=semana_actual,
-                           dias=dias,
-                           fechas=fechas,
-                           pedidos_guardados=pedidos_guardados)
-
-@app.route('/planificar_editar', methods=['GET', 'POST'])
-def planificar_editar():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if request.method == 'POST':
-        fecha_form = request.form['fecha']  # dd-mm-aaaa
-        fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
-        almuerzo = 1 if request.form.get('almuerzo') == 'on' else 0
-        cena = 1 if request.form.get('cena') == 'on' else 0
-
-        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE fecha = %s", (fecha_iso,))
-        existe = cursor.fetchone()[0]
-
-        if existe:
-            cursor.execute("""
-                UPDATE pedidos
-                SET almuerzo = %s, cena = %s
-                WHERE fecha = %s
-            """, (almuerzo, cena, fecha_iso))
-            accion = "Pedido editado"
-        else:
-            semana = normalizar_fecha(fecha_iso).isocalendar().week
-            cursor.execute("""
-                INSERT INTO pedidos (fecha, semana, almuerzo, cena)
-                VALUES (%s, %s, %s, %s)
-            """, (fecha_iso, semana, almuerzo, cena))
-            accion = "Pedido registrado"
-
-        detalle = f"{fecha_form} | A:{almuerzo} C:{cena}"
-        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
-                       (datetime.now().isoformat(), accion, detalle))
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return redirect('/planificar_editar')
-
-    # GET: mostrar pedidos existentes
-    cursor.execute("SELECT fecha, almuerzo, cena FROM pedidos ORDER BY fecha DESC")
-    pedidos_raw = cursor.fetchall()
-
-    pedidos = [(formatear_fecha(p[0]), p[1], p[2]) for p in pedidos_raw]
-
-    cursor.close()
-    conn.close()
-    return render_template('planificar_editar.html', pedidos=pedidos)
-
-@app.route('/entregas', methods=['GET', 'POST'])
-def entregas():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # Día actual o recibido por GET
-    fecha_form = request.args.get('fecha')
-    if fecha_form:
-        fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
-    else:
-        hoy = datetime.now()
-        fecha_iso = hoy.strftime("%Y-%m-%d")
-        fecha_form = formatear_fecha(hoy)
-
-    # Validar si es sábado (5) o domingo (6)
-    dia_semana = normalizar_fecha(fecha_iso).weekday()
-    bloqueado = dia_semana >= 5
-
-    if request.method == 'POST' and not bloqueado:
-        fecha_form = request.form['fecha']  # dd-mm-aaaa
-        fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
-
-        entregado_almuerzo = 1 if request.form.get('entregado_almuerzo') == 'on' else 0
-        entregado_cena = 1 if request.form.get('entregado_cena') == 'on' else 0
-        observaciones = request.form['observaciones']
-
-        cursor.execute("SELECT COUNT(*) FROM entregas WHERE fecha = %s", (fecha_iso,))
-        existe = cursor.fetchone()[0]
-
-        if existe:
-            cursor.execute("""
-                UPDATE entregas
-                SET entregado_almuerzo = %s, entregado_cena = %s, observaciones = %s
-                WHERE fecha = %s
-            """, (entregado_almuerzo, entregado_cena, observaciones, fecha_iso))
-            accion = "Entrega editada"
-        else:
-            cursor.execute("""
-                INSERT INTO entregas (fecha, entregado_almuerzo, entregado_cena, observaciones)
-                VALUES (%s, %s, %s, %s)
-            """, (fecha_iso, entregado_almuerzo, entregado_cena, observaciones))
-            accion = "Entrega registrada"
-
-        detalle = f"{fecha_form} | A:{entregado_almuerzo} C:{entregado_cena} | Obs:{observaciones}"
-        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
-                       (datetime.now().isoformat(), accion, detalle))
-        cursor.close()
-        conn.commit()
-        return redirect(f'/entregas?fecha={fecha_form}')
-
-    # Obtener entrega registrada (si existe)
-    entrega = (0, 0, '')
-    pedido = (0, 0)
-
-    if not bloqueado:
-        cursor.execute("SELECT entregado_almuerzo, entregado_cena, observaciones FROM entregas WHERE fecha = %s", (fecha_iso,))
-        entrega = cursor.fetchone() or (0, 0, '')
-
-        cursor.execute("SELECT almuerzo, cena FROM pedidos WHERE fecha = %s", (fecha_iso,))
-        pedido = cursor.fetchone() or (0, 0)
-
-    actual_dt = normalizar_fecha(fecha_iso)
-
-    # Día anterior hábil
-    anterior_dt = actual_dt - timedelta(days=1)
-    while anterior_dt.weekday() >= 5:
-        anterior_dt -= timedelta(days=1)
-    anterior_form = formatear_fecha(anterior_dt)
-
-    # Día siguiente hábil
-    siguiente_dt = actual_dt + timedelta(days=1)
-    while siguiente_dt.weekday() >= 5:
-        siguiente_dt += timedelta(days=1)
-    siguiente_form = formatear_fecha(siguiente_dt)
-
-    cursor.close()
-    conn.close()
-    return render_template('entregas.html',
-                           fecha=fecha_form,
-                           entrega=entrega,
-                           pedido=pedido,
-                           bloqueado=bloqueado,
-                           anterior=anterior_form,
-                           siguiente=siguiente_form)
-
-@app.route('/entregas_editar', methods=['GET', 'POST'])
-def entregas_editar():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if request.method == 'POST':
-        fecha_form = request.form['fecha']  # dd-mm-aaaa
-        fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
-
-        entregado_almuerzo = 1 if request.form.get('entregado_almuerzo') == 'on' else 0
-        entregado_cena = 1 if request.form.get('entregado_cena') == 'on' else 0
-        observaciones = request.form['observaciones']
-
-        cursor.execute("SELECT COUNT(*) FROM entregas WHERE fecha = %s", (fecha_iso,))
-        existe = cursor.fetchone()[0]
-
-        if existe:
-            cursor.execute("""
-                UPDATE entregas
-                SET entregado_almuerzo = %s, entregado_cena = %s, observaciones = %s
-                WHERE fecha = %s
-            """, (entregado_almuerzo, entregado_cena, observaciones, fecha_iso))
-            accion = "Entrega editada"
-        else:
-            cursor.execute("""
-                INSERT INTO entregas (fecha, entregado_almuerzo, entregado_cena, observaciones)
-                VALUES (%s, %s, %s, %s)
-            """, (fecha_iso, entregado_almuerzo, entregado_cena, observaciones))
-            accion = "Entrega registrada"
-
-        detalle = f"{fecha_form} | A:{entregado_almuerzo} C:{entregado_cena} | Obs:{observaciones}"
-        cursor.execute("INSERT INTO log (timestamp, accion, detalle) VALUES (%s, %s, %s)",
-                       (datetime.now().isoformat(), accion, detalle))
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return redirect('/entregas_editar')
-
-    # GET: mostrar entregas existentes
-    cursor.execute("SELECT fecha, entregado_almuerzo, entregado_cena, observaciones FROM entregas ORDER BY fecha DESC")
-    entregas_raw = cursor.fetchall()
-
-    entregas = [(formatear_fecha(e[0]), e[1], e[2], e[3]) for e in entregas_raw]
-
-    cursor.close()
-    conn.close()
-    return render_template('entregas_editar.html', entregas=entregas)
-
-@app.route('/entregas_pendientes')
-def entregas_pendientes():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    hoy_iso = datetime.now().strftime("%Y-%m-%d")
-
-    # Obtener todos los pedidos hasta hoy
-    cursor.execute("""
-        SELECT fecha, almuerzo, cena
-        FROM pedidos
-        WHERE fecha <= %s
-        ORDER BY fecha ASC
-    """, (hoy_iso,))
-    pedidos = cursor.fetchall()
-
-    # Obtener entregas registradas
-    cursor.execute("SELECT fecha, entregado_almuerzo, entregado_cena FROM entregas")
-    entregas_raw = cursor.fetchall()
-    entregas = {normalizar_fecha(row[0]): (row[1], row[2]) for row in entregas_raw}
-
-    pendientes = []
-    for fecha_iso, a_pedido, c_pedido in pedidos:
-        fecha_date = normalizar_fecha(fecha_iso)
-        a_entregado, c_entregado = entregas.get(fecha_date, (0, 0))
-        if (a_pedido and not a_entregado) or (c_pedido and not c_entregado):
-            fecha_fmt = formatear_fecha(fecha_date)
-            pendientes.append((fecha_fmt, a_pedido, c_pedido, a_entregado, c_entregado))
-
-    cursor.close()
-    conn.close()
-    return render_template('entregas_pendientes.html', pendientes=pendientes)
 
 @app.route('/dashboard')
 def dashboard():
@@ -384,19 +290,24 @@ def dashboard():
     alm_saldo = alm_pagados - alm_entregados - alm_por_entregar
     cen_saldo = cen_pagados - cen_entregados - cen_por_entregar
 
-    errores = []
+    errores_pendientes = defaultdict(list)
+    errores_inconsistencias = defaultdict(list)
+
     for fecha_iso, a_pedido, c_pedido in pedidos_raw:
         fecha_date = normalizar_fecha(fecha_iso)
         fecha_fmt = formatear_fecha(fecha_date)
         a_entregado, c_entregado = entregas.get(fecha_date, (0, 0))
+
         if a_pedido and not a_entregado:
-            errores.append(f"{fecha_fmt}: Almuerzo pedido no entregado")
+            if fecha_date >= hoy_date:
+                errores_pendientes[fecha_fmt].append('almuerzo')
+            else:
+                errores_inconsistencias[fecha_fmt].append('almuerzo')
         if c_pedido and not c_entregado:
-            errores.append(f"{fecha_fmt}: Cena pedida no entregada")
-        if a_entregado and not a_pedido:
-            errores.append(f"{fecha_fmt}: Almuerzo entregado sin pedido")
-        if c_entregado and not c_pedido:
-            errores.append(f"{fecha_fmt}: Cena entregada sin pedido")
+            if fecha_date >= hoy_date:
+                errores_pendientes[fecha_fmt].append('cena')
+            else:
+                errores_inconsistencias[fecha_fmt].append('cena')
 
     cursor.close()
     conn.close()
@@ -413,7 +324,8 @@ def dashboard():
                            alm_saldo=alm_saldo,
                            cen_saldo=cen_saldo,
                            fecha_ultimo_pago=fecha_ultimo_pago,
-                           errores=errores)
+                           errores_pendientes=errores_pendientes,
+                           errores_inconsistencias=errores_inconsistencias)
 
 @app.route('/log')
 def log():
@@ -425,44 +337,5 @@ def log():
 
     return render_template('log.html', contenido=contenido)
 
-@app.route('/log_exportado', methods=['GET'])
-def log_exportado():
-    desde_form = request.args.get('desde')  # dd-mm-aaaa
-    hasta_form = request.args.get('hasta')  # dd-mm-aaaa
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if desde_form and hasta_form:
-        # Convertir a formato ISO para la consulta
-        desde_iso = normalizar_fecha(desde_form).strftime("%Y-%m-%d")
-        hasta_iso = normalizar_fecha(hasta_form).strftime("%Y-%m-%d")
-
-        cursor.execute("""
-            SELECT timestamp, accion, detalle
-            FROM log
-            WHERE DATE(timestamp) BETWEEN %s AND %s
-            ORDER BY timestamp ASC
-        """, (desde_iso, hasta_iso))
-        registros_raw = cursor.fetchall()
-
-        # Convertir timestamp a formato legible
-        registros = []
-        for r in registros_raw:
-            try:
-                timestamp_fmt = datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%S.%f").strftime("%d-%m-%Y %H:%M:%S")
-            except ValueError:
-                timestamp_fmt = datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%S").strftime("%d-%m-%Y %H:%M:%S")
-            registros.append((timestamp_fmt, r[1], r[2]))
-    else:
-        registros = []
-
-    cursor.close()
-    conn.close()
-    return render_template('log_exportado.html',
-                           registros=registros,
-                           desde=desde_form,
-                           hasta=hasta_form)
-
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True)

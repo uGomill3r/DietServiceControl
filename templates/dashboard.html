@@ -1,66 +1,88 @@
 {% extends "base.html" %}
-{% block title %}Dashboard global{% endblock %}
+{% block title %}Resumen{% endblock %}
 {% block content %}
 
-<h2 class="mb-4">Dashboard global</h2>
+<h2 class="mb-4">Resumen</h2>
 
 <div class="table-responsive">
-    <table class="table table-bordered table-striped align-middle">
-        <thead class="table-dark">
-            <tr>
-                <th>Ítem</th>
-                <th>Pagados</th>
-                <th>Pedidos</th>
-                <th>Entregados</th>
-                <th>Por entregar</th>
-                <th>Saldo</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>Almuerzos</td>
-                <td>{{ alm_pagados }}</td>
-                <td>{{ alm_pedidos }}</td>
-                <td>{{ alm_entregados }}</td>
-                <td>{{ alm_por_entregar }}</td>
-                <td>
-                    {% if alm_saldo < 0 %}
-                        <span class="text-danger fw-bold">{{ alm_saldo }}</span>
-                    {% else %}
-                        <span class="text-success fw-bold">{{ alm_saldo }}</span>
-                    {% endif %}
-                </td>
-            </tr>
-            <tr>
-                <td>Cenas</td>
-                <td>{{ cen_pagados }}</td>
-                <td>{{ cen_pedidos }}</td>
-                <td>{{ cen_entregados }}</td>
-                <td>{{ cen_por_entregar }}</td>
-                <td>
-                    {% if cen_saldo < 0 %}
-                        <span class="text-danger fw-bold">{{ cen_saldo }}</span>
-                    {% else %}
-                        <span class="text-success fw-bold">{{ cen_saldo }}</span>
-                    {% endif %}
-                </td>
-            </tr>
-        </tbody>
-    </table>
+  <table class="table table-bordered align-middle text-center">
+    <thead class="table-dark">
+      <tr>
+        <th>Ítem</th>
+        <th>Pagados</th>
+        <th>Pedidos</th>
+        <th>Entregados</th>
+        <th>Por entregar</th>
+        <th>Saldo</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Almuerzos</td>
+        <td><span class="badge bg-success">{{ alm_pagados }}</span></td>
+        <td><span class="badge bg-secondary">{{ alm_pedidos }}</span></td>
+        <td><span class="badge bg-success">{{ alm_entregados }}</span></td>
+        <td><span class="badge bg-warning">{{ alm_por_entregar }}</span></td>
+        <td>
+          <span class="badge {% if alm_saldo < 0 %}bg-danger{% else %}bg-success{% endif %}">
+            {{ alm_saldo }}
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <td>Cenas</td>
+        <td><span class="badge bg-success">{{ cen_pagados }}</span></td>
+        <td><span class="badge bg-secondary">{{ cen_pedidos }}</span></td>
+        <td><span class="badge bg-success">{{ cen_entregados }}</span></td>
+        <td><span class="badge bg-warning">{{ cen_por_entregar }}</span></td>
+        <td>
+          <span class="badge {% if cen_saldo < 0 %}bg-danger{% else %}bg-success{% endif %}">
+            {{ cen_saldo }}
+          </span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
 </div>
 
 <p class="mt-3"><strong>Último pago registrado:</strong> {{ fecha_ultimo_pago }}</p>
 
-<h3 class="mt-4">Alertas e inconsistencias</h3>
-<div class="alert alert-warning" role="alert">
-    <ul class="mb-0">
-        {% for error in errores %}
-            <li><strong>{{ error }}</strong></li>
-        {% endfor %}
-        {% if errores|length == 0 %}
-            <li>Sin inconsistencias registradas</li>
-        {% endif %}
-    </ul>
+<h3 class="mt-4">Pedidos pendientes</h3>
+<div class="alert alert-warning">
+  <ul class="mb-0 list-unstyled">
+    {% for fecha, comidas in errores_pendientes.items() %}
+      <li class="mb-2 d-flex align-items-center">
+        <a href="/editar_dia?fecha={{ fecha }}" class="fw-bold text-decoration-none me-3">{{ fecha }}</a>
+        <div class="d-flex flex-wrap gap-2">
+          {% for comida in comidas %}
+            <span class="badge bg-warning">{{ comida | capitalize }}</span>
+          {% endfor %}
+        </div>
+      </li>
+    {% endfor %}
+    {% if errores_pendientes|length == 0 %}
+      <li>Sin pendientes registrados</li>
+    {% endif %}
+  </ul>
+</div>
+
+<h3 class="mt-4">Pedidos por validar</h3>
+<div class="alert alert-danger">
+  <ul class="mb-0 list-unstyled">
+    {% for fecha, comidas in errores_inconsistencias.items() %}
+      <li class="mb-2 d-flex align-items-center">
+        <a href="/editar_dia?fecha={{ fecha }}" class="fw-bold text-decoration-none me-3">{{ fecha }}</a>
+        <div class="d-flex flex-wrap gap-2">
+          {% for comida in comidas %}
+            <span class="badge bg-danger">{{ comida | capitalize }}</span>
+          {% endfor %}
+        </div>
+      </li>
+    {% endfor %}
+    {% if errores_inconsistencias|length == 0 %}
+      <li>Nada por validar</li>
+    {% endif %}
+  </ul>
 </div>
 
 <a href="/" class="btn btn-secondary mt-3">Volver al inicio</a>
