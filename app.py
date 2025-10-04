@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 import csv, re
 from db import get_connection
 
@@ -14,6 +14,22 @@ def obtener_fechas_semana(numero_semana, año=datetime.now().year):
     dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie']
     fechas = [(lunes + timedelta(days=i)).strftime('%d-%m-%Y') for i in range(5)]
     return dias, fechas
+
+def normalizar_fecha(fecha):
+    if isinstance(fecha, date):
+        return fecha
+    if isinstance(fecha, datetime):
+        return fecha.date()
+    if isinstance(fecha, str):
+        return datetime.strptime(fecha, "%Y-%m-%d").date()
+    raise ValueError(f"Formato de fecha no reconocido: {fecha}")
+
+def formatear_fecha(fecha):
+    """
+    Convierte una fecha en str o datetime a formato dd-mm-aaaa para visualización.
+    """
+    fecha_date = normalizar_fecha(fecha)
+    return fecha_date.strftime("%d-%m-%Y")
 
 
 @app.route('/')
@@ -45,7 +61,7 @@ def pagos():
     # Mostrar pagos anteriores
     cursor.execute("SELECT fecha, tipo, monto FROM pagos ORDER BY fecha DESC")
     pagos_raw = cursor.fetchall()
-    pagos = [(datetime.strptime(p[0], "%Y-%m-%d").strftime("%d-%m-%Y"), p[1], p[2]) for p in pagos_raw]
+    pagos = [(formatear_fecha(p[0]), p[1], p[2]) for p in pagos_raw]
 
     # Totales por tipo
     cursor.execute("SELECT tipo, SUM(monto) FROM pagos GROUP BY tipo")
@@ -68,8 +84,10 @@ def planificar():
     else:
         semana_actual = int(request.args.get('semana', datetime.now().isocalendar().week))
 
-    dias, fechas = obtener_fechas_semana(semana_actual)  # dd-mm-aaaa
-    feriados = set(row[0] for row in cursor.execute("SELECT fecha FROM feriados").fetchall())
+    dias, fechas = obtener_fechas_semana(semana_actual)  # ya están en dd-mm-aaaa
+    cursor.execute("SELECT fecha FROM feriados")
+    feriados_raw = cursor.fetchall()
+    feriados = set(normalizar_fecha(row[0]).strftime("%Y-%m-%d") for row in feriados_raw)
 
     if request.method == 'POST':
         for i in range(5):
@@ -86,7 +104,14 @@ def planificar():
 
     # Obtener pedidos guardados para esa semana
     cursor.execute("SELECT fecha, almuerzo, cena FROM pedidos WHERE semana = %s", (semana_actual,))
-    pedidos_guardados = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+    pedidos_guardados_raw = cursor.fetchall()
+
+    # Convertir fechas a dd-mm-aaaa para visualización
+    pedidos_guardados = {
+        fecha_formateada: (row[1], row[2])
+        for row in pedidos_guardados_raw
+        for fecha_formateada in [formatear_fecha(normalizar_fecha(row[0]))]
+    }
 
     cursor.close()
     conn.close()
@@ -118,7 +143,7 @@ def planificar_editar():
             """, (almuerzo, cena, fecha_iso))
             accion = "Pedido editado"
         else:
-            semana = datetime.strptime(fecha_iso, "%Y-%m-%d").isocalendar().week
+            semana = normalizar_fecha(fecha_iso).isocalendar().week
             cursor.execute("""
                 INSERT INTO pedidos (fecha, semana, almuerzo, cena)
                 VALUES (%s, %s, %s, %s)
@@ -137,7 +162,8 @@ def planificar_editar():
     # GET: mostrar pedidos existentes
     cursor.execute("SELECT fecha, almuerzo, cena FROM pedidos ORDER BY fecha DESC")
     pedidos_raw = cursor.fetchall()
-    pedidos = [(datetime.strptime(p[0], "%Y-%m-%d").strftime("%d-%m-%Y"), p[1], p[2]) for p in pedidos_raw]
+
+    pedidos = [(formatear_fecha(p[0]), p[1], p[2]) for p in pedidos_raw]
 
     cursor.close()
     conn.close()
@@ -155,14 +181,14 @@ def entregas():
     else:
         hoy = datetime.now()
         fecha_iso = hoy.strftime("%Y-%m-%d")
-        fecha_form = hoy.strftime("%d-%m-%Y")
+        fecha_form = formatear_fecha(hoy)
 
     # Validar si es sábado (5) o domingo (6)
-    dia_semana = datetime.strptime(fecha_iso, "%Y-%m-%d").weekday()
+    dia_semana = normalizar_fecha(fecha_iso).weekday()
     bloqueado = dia_semana >= 5
 
     if request.method == 'POST' and not bloqueado:
-        fecha_form = request.form['fecha']
+        fecha_form = request.form['fecha']  # dd-mm-aaaa
         fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
 
         entregado_almuerzo = 1 if request.form.get('entregado_almuerzo') == 'on' else 0
@@ -204,19 +230,19 @@ def entregas():
         cursor.execute("SELECT almuerzo, cena FROM pedidos WHERE fecha = %s", (fecha_iso,))
         pedido = cursor.fetchone() or (0, 0)
 
-    actual_dt = datetime.strptime(fecha_iso, "%Y-%m-%d")
+    actual_dt = normalizar_fecha(fecha_iso)
 
     # Día anterior hábil
     anterior_dt = actual_dt - timedelta(days=1)
     while anterior_dt.weekday() >= 5:
         anterior_dt -= timedelta(days=1)
-    anterior_form = anterior_dt.strftime("%d-%m-%Y")
+    anterior_form = formatear_fecha(anterior_dt)
 
     # Día siguiente hábil
     siguiente_dt = actual_dt + timedelta(days=1)
     while siguiente_dt.weekday() >= 5:
         siguiente_dt += timedelta(days=1)
-    siguiente_form = siguiente_dt.strftime("%d-%m-%Y")
+    siguiente_form = formatear_fecha(siguiente_dt)
 
     cursor.close()
     conn.close()
@@ -236,6 +262,7 @@ def entregas_editar():
     if request.method == 'POST':
         fecha_form = request.form['fecha']  # dd-mm-aaaa
         fecha_iso = datetime.strptime(fecha_form, "%d-%m-%Y").strftime("%Y-%m-%d")
+
         entregado_almuerzo = 1 if request.form.get('entregado_almuerzo') == 'on' else 0
         entregado_cena = 1 if request.form.get('entregado_cena') == 'on' else 0
         observaciones = request.form['observaciones']
@@ -269,7 +296,8 @@ def entregas_editar():
     # GET: mostrar entregas existentes
     cursor.execute("SELECT fecha, entregado_almuerzo, entregado_cena, observaciones FROM entregas ORDER BY fecha DESC")
     entregas_raw = cursor.fetchall()
-    entregas = [(datetime.strptime(e[0], "%Y-%m-%d").strftime("%d-%m-%Y"), e[1], e[2], e[3]) for e in entregas_raw]
+
+    entregas = [(formatear_fecha(e[0]), e[1], e[2], e[3]) for e in entregas_raw]
 
     cursor.close()
     conn.close()
@@ -293,13 +321,15 @@ def entregas_pendientes():
 
     # Obtener entregas registradas
     cursor.execute("SELECT fecha, entregado_almuerzo, entregado_cena FROM entregas")
-    entregas = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+    entregas_raw = cursor.fetchall()
+    entregas = {normalizar_fecha(row[0]): (row[1], row[2]) for row in entregas_raw}
 
     pendientes = []
     for fecha_iso, a_pedido, c_pedido in pedidos:
-        a_entregado, c_entregado = entregas.get(fecha_iso, (0, 0))
+        fecha_date = normalizar_fecha(fecha_iso)
+        a_entregado, c_entregado = entregas.get(fecha_date, (0, 0))
         if (a_pedido and not a_entregado) or (c_pedido and not c_entregado):
-            fecha_fmt = datetime.strptime(fecha_iso, "%Y-%m-%d").strftime("%d-%m-%Y")
+            fecha_fmt = formatear_fecha(fecha_date)
             pendientes.append((fecha_fmt, a_pedido, c_pedido, a_entregado, c_entregado))
 
     cursor.close()
@@ -317,16 +347,18 @@ def dashboard():
 
     # Todas las entregas
     cursor.execute("SELECT fecha, entregado_almuerzo, entregado_cena FROM entregas")
-    entregas = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+    entregas_raw = cursor.fetchall()
+    entregas = {normalizar_fecha(row[0]): (row[1], row[2]) for row in entregas_raw}
 
-    hoy_iso = datetime.now().strftime("%Y-%m-%d")
+    hoy_date = datetime.now().date()
 
     alm_por_entregar = 0
     cen_por_entregar = 0
 
     for fecha_iso, a_pedido, c_pedido in pedidos_raw:
-        if fecha_iso >= hoy_iso:
-            a_entregado, c_entregado = entregas.get(fecha_iso, (0, 0))
+        fecha_date = normalizar_fecha(fecha_iso)
+        if fecha_date >= hoy_date:
+            a_entregado, c_entregado = entregas.get(fecha_date, (0, 0))
             if a_pedido and not a_entregado:
                 alm_por_entregar += 1
             if c_pedido and not c_entregado:
@@ -341,22 +373,22 @@ def dashboard():
     # Último pago
     cursor.execute("SELECT fecha FROM pagos ORDER BY fecha DESC LIMIT 1")
     ultimo_pago = cursor.fetchone()
-    fecha_ultimo_pago = datetime.strptime(ultimo_pago[0], "%Y-%m-%d").strftime("%d-%m-%Y") if ultimo_pago else "—"
+    fecha_ultimo_pago = formatear_fecha(ultimo_pago[0]) if ultimo_pago else "—"
 
     # Totales
     alm_pedidos = sum(p[1] for p in pedidos_raw)
     cen_pedidos = sum(p[2] for p in pedidos_raw)
-    alm_entregados = sum(entregas.get(p[0], (0, 0))[0] for p in pedidos_raw)
-    cen_entregados = sum(entregas.get(p[0], (0, 0))[1] for p in pedidos_raw)
+    alm_entregados = sum(entregas.get(normalizar_fecha(p[0]), (0, 0))[0] for p in pedidos_raw)
+    cen_entregados = sum(entregas.get(normalizar_fecha(p[0]), (0, 0))[1] for p in pedidos_raw)
 
     alm_saldo = alm_pagados - alm_entregados - alm_por_entregar
     cen_saldo = cen_pagados - cen_entregados - cen_por_entregar
 
     errores = []
-    for p in pedidos_raw:
-        fecha_iso, a_pedido, c_pedido = p
-        fecha_fmt = datetime.strptime(fecha_iso, "%Y-%m-%d").strftime("%d-%m-%Y")
-        a_entregado, c_entregado = entregas.get(fecha_iso, (0, 0))
+    for fecha_iso, a_pedido, c_pedido in pedidos_raw:
+        fecha_date = normalizar_fecha(fecha_iso)
+        fecha_fmt = formatear_fecha(fecha_date)
+        a_entregado, c_entregado = entregas.get(fecha_date, (0, 0))
         if a_pedido and not a_entregado:
             errores.append(f"{fecha_fmt}: Almuerzo pedido no entregado")
         if c_pedido and not c_entregado:
@@ -381,8 +413,7 @@ def dashboard():
                            alm_saldo=alm_saldo,
                            cen_saldo=cen_saldo,
                            fecha_ultimo_pago=fecha_ultimo_pago,
-                           errores=errores
-                           )
+                           errores=errores)
 
 @app.route('/log')
 def log():
@@ -404,8 +435,8 @@ def log_exportado():
 
     if desde_form and hasta_form:
         # Convertir a formato ISO para la consulta
-        desde_iso = datetime.strptime(desde_form, "%d-%m-%Y").strftime("%Y-%m-%d")
-        hasta_iso = datetime.strptime(hasta_form, "%d-%m-%Y").strftime("%Y-%m-%d")
+        desde_iso = normalizar_fecha(desde_form).strftime("%Y-%m-%d")
+        hasta_iso = normalizar_fecha(hasta_form).strftime("%Y-%m-%d")
 
         cursor.execute("""
             SELECT timestamp, accion, detalle
@@ -416,10 +447,13 @@ def log_exportado():
         registros_raw = cursor.fetchall()
 
         # Convertir timestamp a formato legible
-        registros = [
-            (datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%S.%f").strftime("%d-%m-%Y %H:%M:%S"), r[1], r[2])
-            for r in registros_raw
-        ]
+        registros = []
+        for r in registros_raw:
+            try:
+                timestamp_fmt = datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%S.%f").strftime("%d-%m-%Y %H:%M:%S")
+            except ValueError:
+                timestamp_fmt = datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%S").strftime("%d-%m-%Y %H:%M:%S")
+            registros.append((timestamp_fmt, r[1], r[2]))
     else:
         registros = []
 

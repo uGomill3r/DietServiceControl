@@ -11,8 +11,7 @@
 
 <form method="POST" class="row g-3">
     {% for i in range(5) %}
-        {% set fecha_iso = fechas[i].split('-')[2] ~ '-' ~ fechas[i].split('-')[1] ~ '-' ~ fechas[i].split('-')[0] %}
-        {% set pedido = pedidos_guardados.get(fecha_iso, (0, 0)) %}
+        {% set pedido = pedidos_guardados.get(fechas[i], (0, 0)) %}
         <div class="col-12">
             <fieldset class="border rounded p-3 mb-3">
                 <legend class="float-none w-auto px-2 fw-bold">{{ dias[i] }} {{ fechas[i] }}</legend>
