@@ -1,10 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 from datetime import datetime, date, timedelta
 from collections import defaultdict
-import re
+from werkzeug.security import generate_password_hash, check_password_hash
+import os, re
 from db import get_connection
+from auth import protegido
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY")
 
 # Archivos
 LOG = 'changelog/log.md'
@@ -63,11 +66,89 @@ def estado_textual(fecha_obj, pedido, entrega, feriado):
 
     return ""
 
+def credencial_valida(usuario, clave):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT contraseña FROM credenciales WHERE usuario = %s", (usuario,))
+    fila = cursor.fetchone()
+    conn.close()
+    if fila:
+        return clave == fila[0]
+    return usuario == os.getenv("APP_USER") and clave == os.getenv("APP_PASSWORD")
+
+
 @app.route('/')
 def index():
+    if not session.get('autenticado'):
+        return redirect(url_for('login'))
+    if session.get('clave_temporal'):
+        return redirect(url_for('cambiar_clave'))
     return redirect(url_for('dashboard'))
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        usuario = request.form['usuario']
+        clave = request.form['clave']
+
+        if credencial_valida(usuario, clave):
+            session['autenticado'] = True
+            # Detectar si es la clave inicial
+            if clave == os.getenv("APP_PASSWORD"):
+                session['clave_temporal'] = True
+            return redirect(url_for('index'))
+
+        flash('Credenciales incorrectas')
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+@app.route('/recuperar', methods=['GET', 'POST'])
+def recuperar():
+    if request.method == 'POST':
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO credenciales (usuario, contraseña)
+            VALUES (%s, %s)
+            ON CONFLICT (usuario) DO UPDATE SET contraseña = EXCLUDED.contraseña, actualizado = CURRENT_TIMESTAMP
+        """, (os.getenv("APP_USER"), os.getenv("APP_PASSWORD")))
+        conn.commit()
+        conn.close()
+        flash('Contraseña restaurada. Por favor inicia sesión y cámbiala.')
+        return redirect(url_for('login'))
+    return render_template('recuperar.html')
+
+@app.route('/cambiar_clave', methods=['GET', 'POST'])
+def cambiar_clave():
+    if not session.get('autenticado'):
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        nueva = request.form['nueva_clave']
+        if nueva == os.getenv("APP_PASSWORD"):
+            flash('La nueva contraseña no puede ser igual a la inicial.')
+            return render_template('cambiar_clave.html')
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE credenciales SET contraseña = %s, actualizado = CURRENT_TIMESTAMP
+            WHERE usuario = %s
+        """, (nueva, os.getenv("APP_USER")))
+        conn.commit()
+        conn.close()
+        session.pop('clave_temporal', None)
+        flash('Contraseña actualizada correctamente.')
+        return redirect(url_for('dashboard'))
+
+    return render_template('cambiar_clave.html')
+
 @app.route('/semana', methods=['GET'])
+@protegido
 def vista_semanal():
     def fecha_iso(fecha):
         return normalizar_fecha(fecha).strftime("%Y-%m-%d")
@@ -138,6 +219,7 @@ def vista_semanal():
                            semana_data=semana_data)
 
 @app.route('/editar_dia', methods=['GET', 'POST'])
+@protegido
 def editar_dia():
     conn = get_connection()
     cursor = conn.cursor()
@@ -206,6 +288,7 @@ def editar_dia():
                            feriado=feriado)
 
 @app.route('/pagos', methods=['GET', 'POST'])
+@protegido
 def pagos():
     conn = get_connection()
     cursor = conn.cursor()
@@ -243,6 +326,7 @@ def pagos():
                            totales=totales)
 
 @app.route('/dashboard')
+@protegido
 def dashboard():
     conn = get_connection()
     cursor = conn.cursor()
@@ -328,6 +412,7 @@ def dashboard():
                            errores_inconsistencias=errores_inconsistencias)
 
 @app.route('/log')
+@protegido
 def log():
     with open(LOG) as f:
         contenido = f.read()
