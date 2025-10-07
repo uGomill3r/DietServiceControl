@@ -13,8 +13,12 @@ app.secret_key = os.getenv("SECRET_KEY")
 LOG = 'changelog/log.md'
 
 # Utilidades
-def obtener_fechas_semana(numero_semana, año=datetime.now().year):
-    lunes = datetime.strptime(f'{año}-W{int(numero_semana)}-1', "%Y-W%W-%w")
+from datetime import datetime, timedelta
+
+def obtener_fechas_semana(numero_semana, año=None):
+    if año is None:
+        año = datetime.now().isocalendar().year  # año ISO real
+    lunes = datetime.strptime(f'{año}-W{int(numero_semana):02}-1', "%G-W%V-%u")
     dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie']
     fechas = [(lunes + timedelta(days=i)).strftime('%d-%m-%Y') for i in range(5)]
     return dias, fechas
