@@ -57,27 +57,28 @@
   <button class="btn btn-outline-primary me-2" onclick="copiarTabla()">📋 Copiar tabla</button>
   <a href="/entregados_excel?tipo={{ tipo }}&desde={{ fecha_seleccionada }}" class="btn btn-outline-success">📄 Exportar a Excel</a>
 </div>
-
+{% if registros | selectattr("excedido") | list | length > 0 %}
+  <div class="mb-2">
+    <span class="badge bg-warning text-dark">⚠️ Días fuera del rango pagado</span>
+  </div>
+{% endif %}
 <table class="table table-bordered table-sm" id="tablaReporte">
   <thead class="table-light">
     <tr>
       <th>#</th>
       <th>Fecha</th>
-      <th>Pedido</th>
-      <th>Entregado</th>
     </tr>
   </thead>
   <tbody>
     {% for r in registros %}
-    <tr>
+    <tr {% if r.excedido %}class="table-warning"{% endif %}>
       <td>{{ loop.index }}</td>
-      <td>{{ r[0].strftime('%d-%m-%Y') }}</td>
-      <td>{{ 'Sí' if (r[1] if tipo == 'almuerzo' else r[2]) else 'No' }}</td>
-      <td>{{ 'Sí' if r[3] else 'No' }}</td>
+      <td>{{ r.fecha }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+
 {% endif %}
 {% endblock %}
 

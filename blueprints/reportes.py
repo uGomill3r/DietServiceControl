@@ -4,6 +4,7 @@ import pandas as pd
 from io import BytesIO
 from datetime import datetime
 from decoradores import protegido
+from utils import formatear_fecha_con_dia
 
 reportes_bp = Blueprint('reportes', __name__)
 
@@ -33,22 +34,34 @@ def entregados():
         if fecha_str:
             fecha_seleccionada = datetime.strptime(fecha_str, "%Y-%m-%d").date()
 
-            campo_entregado = 'e.entregado_almuerzo' if tipo == 'almuerzo' else 'e.entregado_cena'
-            cursor.execute(f"""
-                SELECT p.fecha, p.almuerzo, p.cena, {campo_entregado}
-                FROM pedidos p
-                JOIN entregas e ON p.fecha = e.fecha
-                WHERE p.fecha >= %s AND {campo_entregado} = 1
-                ORDER BY p.fecha ASC
-            """, (fecha_seleccionada,))
-            registros = cursor.fetchall()
-
+            # Obtener info del pago primero
             cursor.execute("""
                 SELECT fecha, tipo, monto, cantidad
                 FROM pagos
                 WHERE fecha = %s AND tipo = %s
             """, (fecha_seleccionada, tipo))
             pago_info = cursor.fetchone()
+            cantidad_pagada = pago_info[3] if pago_info else 0
+
+            # Luego obtener entregas
+            campo_entregado = 'e.entregado_almuerzo' if tipo == 'almuerzo' else 'e.entregado_cena'
+            cursor.execute(f"""
+                SELECT p.fecha
+                FROM pedidos p
+                JOIN entregas e ON p.fecha = e.fecha
+                WHERE p.fecha >= %s AND {campo_entregado} = 1
+                ORDER BY p.fecha ASC
+            """, (fecha_seleccionada,))
+            fechas_entregadas = [r[0] for r in cursor.fetchall()]
+
+            registros = []
+            for i, fecha in enumerate(fechas_entregadas):
+                texto = formatear_fecha_con_dia(fecha)
+                excedido = i >= cantidad_pagada
+                registros.append({
+                    'fecha': texto,
+                    'excedido': excedido
+                })
 
     cursor.close()
     conn.close()
@@ -84,39 +97,45 @@ def validados_excel():
         WHERE fecha = %s AND tipo = %s
     """, (fecha_base, tipo))
     pago_info = cursor.fetchone()
+    cantidad_pagada = pago_info[3] if pago_info else 0
 
     # Obtener entregas según tipo
     campo_entregado = 'e.entregado_almuerzo' if tipo == 'almuerzo' else 'e.entregado_cena'
     cursor.execute(f"""
-        SELECT p.fecha, p.almuerzo, p.cena, {campo_entregado}
+        SELECT p.fecha
         FROM pedidos p
         JOIN entregas e ON p.fecha = e.fecha
         WHERE p.fecha >= %s AND {campo_entregado} = 1
         ORDER BY p.fecha ASC
     """, (fecha_base,))
-    registros = cursor.fetchall()
+    fechas_entregadas = [r[0] for r in cursor.fetchall()]
 
     cursor.close()
     conn.close()
 
-    # Preparar DataFrame
-    df = pd.DataFrame(registros, columns=[
-        'Fecha', 'Almuerzo', 'Cena', 'Entregado'
-    ])
-    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-    df['Fecha'] = df['Fecha'].dt.strftime('%d-%m-%Y')
-    df['Pedido'] = df['Almuerzo'] if tipo == 'almuerzo' else df['Cena']
-    df['Pedido'] = df['Pedido'].replace({1: 'Sí', 0: 'No'})
-    df['Entregado'] = df['Entregado'].replace({1: 'Sí', 0: 'No'})
-    df = df[['Fecha', 'Pedido', 'Entregado']]
+    # Preparar registros
+    registros = []
+    for i, fecha in enumerate(fechas_entregadas):
+        texto = formatear_fecha_con_dia(fecha)
+        excedido = i >= cantidad_pagada
+        registros.append({
+            'Fecha': texto,
+            'Excedido': 'Sí' if excedido else ''
+        })
+
+    df = pd.DataFrame(registros)
     df.index += 1
     df.reset_index(inplace=True)
     df.rename(columns={'index': '#'}, inplace=True)
 
-    # Generar Excel
+    # Generar Excel con formato
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         sheet_name = f'Entregas {tipo.capitalize()}'
+        df.to_excel(writer, index=False, sheet_name=sheet_name, startrow=4)
+
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
 
         # Escribir resumen del pago si existe
         if pago_info:
@@ -124,13 +143,19 @@ def validados_excel():
                 'Fecha de pago': pago_info[0].strftime('%d-%m-%Y'),
                 'Tipo': pago_info[1].capitalize(),
                 'Monto': f"S/. {pago_info[2]:.2f}",
-                'Entregas cubiertas': pago_info[3],
-                'Valor por unidad': f"S/. {pago_info[2] / pago_info[3]:.2f}"
+                'Entregas cubiertas': cantidad_pagada,
+                'Valor por unidad': f"S/. {pago_info[2] / cantidad_pagada:.2f}"
             }])
             resumen.to_excel(writer, index=False, sheet_name=sheet_name, startrow=0)
-            df.to_excel(writer, index=False, sheet_name=sheet_name, startrow=4)
-        else:
-            df.to_excel(writer, index=False, sheet_name=sheet_name)
+
+        # Aplicar formato amarillo a filas con "Sí" en columna Excedido
+        formato_excedido = workbook.add_format({'bg_color': '#FFF3CD'})  # amarillo suave
+        worksheet.conditional_format(f'E5:E{len(df)+4}', {
+            'type': 'text',
+            'criteria': 'containing',
+            'value': 'Sí',
+            'format': formato_excedido
+        })
 
     output.seek(0)
     return send_file(output,
