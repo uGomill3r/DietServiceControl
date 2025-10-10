@@ -47,12 +47,12 @@
 
 <p class="mt-3"><strong>Último pago registrado:</strong> {{ fecha_ultimo_pago }}</p>
 
-<h3 class="mt-4">Pedidos pendientes</h3>
+<h3 class="mt-4">Pedidos siguientes</h3>
 <div class="alert alert-warning">
   <ul class="mb-0 list-unstyled">
-    {% for fecha, comidas in errores_pendientes.items() %}
+    {% for fecha_raw, fecha_fmt, comidas in pedidos_pendientes %}
       <li class="mb-2 d-flex align-items-center">
-        <a href="/editar_dia?fecha={{ fecha }}" class="fw-bold text-decoration-none me-3">{{ fecha }}</a>
+        <a href="/editar_dia?fecha={{ fecha_raw }}" class="fw-bold text-decoration-none me-3">{{ fecha_fmt }}</a>
         <div class="d-flex flex-wrap gap-2">
           {% for comida in comidas %}
             <span class="badge bg-warning">{{ comida | capitalize }}</span>
@@ -60,18 +60,18 @@
         </div>
       </li>
     {% endfor %}
-    {% if errores_pendientes|length == 0 %}
+    {% if pedidos_pendientes|length == 0 %}
       <li>Sin pendientes registrados</li>
     {% endif %}
   </ul>
 </div>
 
-<h3 class="mt-4">Pedidos por validar</h3>
+<h3 class="mt-4">Pedidos sin validar</h3>
 <div class="alert alert-danger">
   <ul class="mb-0 list-unstyled">
-    {% for fecha, comidas in errores_inconsistencias.items() %}
+    {% for fecha_raw, fecha_fmt, comidas in pedidos_por_validar %}
       <li class="mb-2 d-flex align-items-center">
-        <a href="/editar_dia?fecha={{ fecha }}" class="fw-bold text-decoration-none me-3">{{ fecha }}</a>
+        <a href="/editar_dia?fecha={{ fecha_raw }}" class="fw-bold text-decoration-none me-3">{{ fecha_fmt }}</a>
         <div class="d-flex flex-wrap gap-2">
           {% for comida in comidas %}
             <span class="badge bg-danger">{{ comida | capitalize }}</span>
@@ -79,7 +79,7 @@
         </div>
       </li>
     {% endfor %}
-    {% if errores_inconsistencias|length == 0 %}
+    {% if pedidos_por_validar|length == 0 %}
       <li>Nada por validar</li>
     {% endif %}
   </ul>

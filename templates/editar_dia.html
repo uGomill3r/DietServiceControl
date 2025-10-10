@@ -2,7 +2,7 @@
 {% block title %}Editar Día{% endblock %}
 
 {% block content %}
-<h2 class="mb-4">Editar <span class="text-primary">{{ fecha }}</span></h2>
+<h2 class="mb-4">Editar <span class="text-primary">{{ fecha_con_dia }}</span></h2>
 
 <!-- Estado actual -->
 <div class="mb-4">
@@ -71,7 +71,25 @@
             <input class="form-check-input" type="checkbox" name="cena" id="cena" {% if pedido[1] %}checked{% endif %}>
             <label class="form-check-label fw-bold" for="cena">Cena</label>
           </div>
-          <div class="mb-3">
+            <!-- Entrada y Fondo (solo si almuerzo está ON) -->
+            <div id="bloqueAlmuerzo">
+              <div class="mb-3">
+                <label for="entrada" class="form-label">Entrada</label>
+                <input type="text" class="form-control" name="entrada" id="entrada" value="{{ entrada }}" list="entrada_sugerencias">
+              </div>
+              <div class="mb-3">
+                <label for="fondo" class="form-label">Fondo</label>
+                <input type="text" class="form-control" name="fondo" id="fondo" value="{{ fondo }}" list="fondo_sugerencias">
+              </div>
+            </div>
+            <!-- Plato Cena (solo si cena está ON) -->
+            <div id="bloqueCena">
+              <div class="mb-3">
+                <label for="plato_cena" class="form-label">Cena</label>
+                <input type="text" class="form-control" name="plato_cena" id="plato_cena" value="{{ plato_cena }}" list="plato_cena_sugerencias">
+              </div>
+            </div>
+            <div class="mb-3">
             <label for="obs_pedido" class="form-label">Observación del pedido</label>
             <textarea class="form-control" name="obs_pedido" id="obs_pedido" rows="2">{{ obs_pedido }}</textarea>
           </div>
@@ -93,7 +111,7 @@
             <label class="form-check-label fw-bold text-success" for="entregado_cena">Cena entregada</label>
           </div>
           <div class="mb-3">
-            <label for="obs_entrega" class="form-label">Observación de entrega</label>
+            <label for="obs_entrega" class="form-label">Observación de la entrega</label>
             <textarea class="form-control" name="obs_entrega" id="obs_entrega" rows="2">{{ entrega[2] }}</textarea>
           </div>
         </div>
@@ -105,7 +123,11 @@
   <div class="mt-4 d-flex justify-content-between">
     <a href="/semana" class="btn btn-outline-secondary">← Volver a semana</a>
     <button type="submit" class="btn btn-primary" id="guardarBtn" style="display:none;">Guardar</button>
+    <button type="submit" class="btn btn-outline-primary" name="accion" value="guardar_siguiente" id="guardarSiguienteBtn" style="display:none;">Guardar y editar siguiente →</button>
   </div>
+  <datalist id="entrada_sugerencias"></datalist>
+  <datalist id="fondo_sugerencias"></datalist>
+  <datalist id="plato_cena_sugerencias"></datalist>
 </form>
 {% endblock %}
 
@@ -114,6 +136,7 @@
 document.addEventListener('DOMContentLoaded', function () {
   const form = document.querySelector('form');
   const guardarBtn = document.getElementById('guardarBtn');
+  const guardarSiguienteBtn = document.getElementById('guardarSiguienteBtn');
 
   // Capturar estado original
   const originalState = {};
@@ -135,6 +158,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
     guardarBtn.style.display = cambiado ? 'inline-block' : 'none';
+    guardarSiguienteBtn.style.display = cambiado ? 'inline-block' : 'none';
   }
 
   form.addEventListener('input', detectChanges);
@@ -162,6 +186,57 @@ document.addEventListener('DOMContentLoaded', function () {
 
   feriadoSwitch.addEventListener('change', actualizarBloqueo);
   actualizarBloqueo(); // aplicar al cargar
+});
+</script>
+<script>
+function activarAutocompletado(idCampo) {
+  const campo = document.getElementById(idCampo);
+  campo.addEventListener('input', function () {
+    const texto = campo.value;
+    if (texto.length < 2) return;
+
+    fetch(`/sugerencias_plato?q=${encodeURIComponent(texto)}`)
+      .then(res => res.json())
+      .then(sugerencias => {
+        const datalistId = idCampo + "_sugerencias";
+        let datalist = document.getElementById(datalistId);
+        if (!datalist) {
+          datalist = document.createElement('datalist');
+          datalist.id = datalistId;
+          document.body.appendChild(datalist);
+          campo.setAttribute('list', datalistId);
+        }
+        datalist.innerHTML = '';
+        sugerencias.forEach(plato => {
+          const option = document.createElement('option');
+          option.value = plato;
+          datalist.appendChild(option);
+        });
+      });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  activarAutocompletado('entrada');
+  activarAutocompletado('fondo');
+  activarAutocompletado('plato_cena');
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const almuerzoSwitch = document.getElementById('almuerzo');
+  const cenaSwitch = document.getElementById('cena');
+  const bloqueAlmuerzo = document.getElementById('bloqueAlmuerzo');
+  const bloqueCena = document.getElementById('bloqueCena');
+
+  function actualizarVisibilidad() {
+    bloqueAlmuerzo.style.display = almuerzoSwitch.checked ? 'block' : 'none';
+    bloqueCena.style.display = cenaSwitch.checked ? 'block' : 'none';
+  }
+
+  almuerzoSwitch.addEventListener('change', actualizarVisibilidad);
+  cenaSwitch.addEventListener('change', actualizarVisibilidad);
+  actualizarVisibilidad(); // aplicar al cargar
 });
 </script>
 {% endblock %}
