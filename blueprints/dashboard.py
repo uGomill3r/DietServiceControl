@@ -1,7 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, session
 from db import get_connection
 from datetime import datetime
-from collections import defaultdict
 from utils import normalizar_fecha, formatear_fecha, formatear_fecha_con_dia
 from decoradores import protegido
 
