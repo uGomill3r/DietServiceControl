@@ -40,23 +40,29 @@
       <tr>
         <th>Fecha</th>
         <th>Tipo</th>
-        <th>Cantidad</th>
+        <th>Monto</th>
+        <th>Ciclo</th>
+        <th>Acciones</th>
       </tr>
     </thead>
     <tbody>
       {% for p in pagos %}
       <tr>
-        <td>{{ p[0] }}</td>
+        <td>{{ p[1] }}</td>
         <td>
-          <span class="badge {% if p[1] == 'almuerzo' %}bg-success{% else %}bg-primary{% endif %}">
-            {{ p[1] | capitalize }}
+          <span class="badge {% if p[2] == 'almuerzo' %}bg-success{% else %}bg-primary{% endif %}">
+            {{ p[2] | capitalize }}
           </span>
         </td>
-        <td><span class="badge bg-secondary">{{ p[2] }}</span></td>
+        <td><span class="badge bg-secondary">{{ p[3] }}</span></td>
+        <td><span class="badge bg-dark">{{ p[4] }}</span></td>
+        <td>
+          <a href="/pagos/editar/{{ p[0] }}" class="btn btn-sm btn-outline-secondary">Editar</a>
+        </td>
       </tr>
       {% endfor %}
       {% if pagos|length == 0 %}
-      <tr><td colspan="3">No hay pagos registrados aún.</td></tr>
+      <tr><td colspan="5">No hay pagos registrados aún.</td></tr>
       {% endif %}
     </tbody>
   </table>

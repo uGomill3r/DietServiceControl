@@ -2,10 +2,10 @@ import os
 from dotenv import load_dotenv
 
 # Carga el entorno desde la variable DOTENV_PATH o por defecto .env
-#Ejemplo:
-#export FLASK_APP=app.py
-#export FLASK_ENV=testing
-#export DOTENV_PATH=.env.test
+# Ejemplo:
+# export FLASK_APP=app.py
+# export FLASK_ENV=production
+# export DOTENV_PATH=.env.prod
 
 load_dotenv(dotenv_path=os.getenv("DOTENV_PATH", ".env"), override=True)
 
