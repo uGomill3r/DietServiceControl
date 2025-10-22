@@ -118,3 +118,43 @@ def dashboard():
                            fecha_ultimo_pago=alm_ciclo.strftime('%d-%m-%Y'),
                            pedidos_pendientes=pedidos_pendientes,
                            pedidos_por_validar=pedidos_por_validar)
+
+
+@dashboard_bp.route('/pedidos_siguientes')
+@protegido
+def pedidos_siguientes():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT fecha, almuerzo, cena FROM pedidos")
+    pedidos_raw = cursor.fetchall()
+
+    cursor.execute("SELECT fecha, entregado_almuerzo, entregado_cena FROM entregas")
+    entregas_raw = cursor.fetchall()
+    entregas = {normalizar_fecha(row[0]): (row[1], row[2]) for row in entregas_raw}
+
+    hoy_date = datetime.now().date()
+    pedidos = []
+
+    for fecha_iso, a_pedido, c_pedido in pedidos_raw:
+        fecha_date = normalizar_fecha(fecha_iso)
+        a_entregado, c_entregado = entregas.get(fecha_date, (0, 0))
+
+        errores = []
+        if a_pedido and not a_entregado and fecha_date >= hoy_date:
+            errores.append('almuerzo')
+        if c_pedido and not c_entregado and fecha_date >= hoy_date:
+            errores.append('cena')
+
+        if errores:
+            pedidos.append({
+                'fecha_raw': fecha_date.strftime('%d-%m-%Y'),
+                'fecha_fmt': formatear_fecha_con_dia(fecha_date),
+                'almuerzo': 'almuerzo' in errores,
+                'cena': 'cena' in errores
+            })
+
+    cursor.close()
+    conn.close()
+
+    return render_template('pedidos_siguientes.html', pedidos=pedidos)
