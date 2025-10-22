@@ -157,4 +157,6 @@ def pedidos_siguientes():
     cursor.close()
     conn.close()
 
+    pedidos.sort(key=lambda p: datetime.strptime(p['fecha_raw'], '%d-%m-%Y'))
+
     return render_template('pedidos_siguientes.html', pedidos=pedidos)

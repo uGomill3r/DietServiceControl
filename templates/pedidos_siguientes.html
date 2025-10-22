@@ -72,18 +72,21 @@ document.getElementById('filtro').addEventListener('change', function () {
 });
 
 function copiarTabla() {
-  const tabla = document.getElementById('tablaPedidos');
+  const filas = document.querySelectorAll('#tablaPedidos tbody tr');
   let texto = '';
-  tabla.querySelectorAll('tbody tr').forEach(row => {
+  filas.forEach(row => {
     if (row.style.display !== 'none') {
-      const cols = Array.from(row.querySelectorAll('td')).filter(c => c.style.display !== 'none');
-      texto += cols.map(c => c.innerText.trim()).join('\t') + '\n';
+      const celdaFecha = row.querySelector('td:nth-child(1)');
+      if (celdaFecha && celdaFecha.style.display !== 'none') {
+        texto += celdaFecha.innerText.trim() + '\n';
+      }
     }
   });
   navigator.clipboard.writeText(texto).then(() => {
-    alert('Tabla copiada al portapapeles');
+    alert('Fechas copiadas al portapapeles');
   });
 }
+
 </script>
 
 {% endblock %}
