@@ -6,7 +6,7 @@
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-5 g-3">
   {% for dia in semana_data %}
     <div class="col">
-      <div class="card h-100 shadow-sm" onclick="location.href='/editar_dia?fecha={{ dia.fecha }}'" style="cursor:pointer;">
+      <div class="card h-100 shadow-sm" onclick="location.href='/ver_dia?fecha={{ dia.fecha }}'" style="cursor:pointer;">
         <div class="card-header text-center fw-bold">
           {{ dia.dia }}<br><span class="text-muted">{{ dia.fecha }}</span>
         </div>

@@ -52,7 +52,7 @@
   <ul class="mb-0 list-unstyled">
     {% for fecha_raw, fecha_fmt, comidas in pedidos_pendientes %}
       <li class="mb-2 d-flex align-items-center">
-        <a href="/editar_dia?fecha={{ fecha_raw }}" class="fw-bold text-decoration-none me-3">{{ fecha_fmt }}</a>
+        <a href="/ver_dia?fecha={{ fecha_raw }}" class="fw-bold text-decoration-none me-3">{{ fecha_fmt }}</a>
         <div class="d-flex flex-wrap gap-2">
           {% for comida in comidas %}
             <span class="badge bg-warning">{{ comida | capitalize }}</span>
@@ -75,7 +75,7 @@
   <ul class="mb-0 list-unstyled">
     {% for fecha_raw, fecha_fmt, comidas in pedidos_por_validar %}
       <li class="mb-2 d-flex align-items-center">
-        <a href="/editar_dia?fecha={{ fecha_raw }}" class="fw-bold text-decoration-none me-3">{{ fecha_fmt }}</a>
+        <a href="/ver_dia?fecha={{ fecha_raw }}" class="fw-bold text-decoration-none me-3">{{ fecha_fmt }}</a>
         <div class="d-flex flex-wrap gap-2">
           {% for comida in comidas %}
             <span class="badge bg-danger">{{ comida | capitalize }}</span>

@@ -2,6 +2,8 @@
 {% block title %}Editar Día{% endblock %}
 
 {% block content %}
+{% set modo_lectura = solo_lectura == true %}
+
 <h2 class="mb-4">Editar <span class="text-primary">{{ fecha_con_dia }}</span></h2>
 
 <!-- Estado actual -->
@@ -45,86 +47,101 @@
   <input type="hidden" name="fecha" value="{{ fecha }}">
   <div class="row g-4">
     <!-- Estado del día -->
+    {% if not modo_lectura or feriado %}
     <div class="col-12">
       <div class="card shadow-sm border-info mb-4">
         <div class="card-header bg-info text-white">Estado del día</div>
         <div class="card-body">
           <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" name="feriado" id="feriado" {% if feriado %}checked{% endif %}>
+            <input class="form-check-input" type="checkbox" name="feriado" id="feriado" {% if feriado %}checked{% endif %} {% if modo_lectura %}disabled{% endif %}>
             <label class="form-check-label fw-bold text-info" for="feriado">Feriado</label>
           </div>
         </div>
       </div>
     </div>
-
-    {% if not feriado %}
+    {% endif %}
+    {% if not feriado and (pedido[0] or pedido[1] or not modo_lectura) %}
     <!-- Pedido -->
     <div class="col-md-6">
       <div class="card shadow-sm border-secondary">
         <div class="card-header bg-secondary text-white">Pedido</div>
         <div class="card-body">
           <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" name="almuerzo" id="almuerzo" {% if pedido[0] %}checked{% endif %}>
+            <input class="form-check-input" type="checkbox" name="almuerzo" id="almuerzo" {% if pedido[0] %}checked{% endif %} {% if modo_lectura %}disabled{% endif %}>
             <label class="form-check-label fw-bold" for="almuerzo">Almuerzo</label>
           </div>
           <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" name="cena" id="cena" {% if pedido[1] %}checked{% endif %}>
+            <input class="form-check-input" type="checkbox" name="cena" id="cena" {% if pedido[1] %}checked{% endif %} {% if modo_lectura %}disabled{% endif %}>
             <label class="form-check-label fw-bold" for="cena">Cena</label>
           </div>
-            <!-- Entrada y Fondo (solo si almuerzo está ON) -->
-            <div id="bloqueAlmuerzo">
-              <div class="mb-3">
-                <label for="entrada" class="form-label">Entrada</label>
-                <input type="text" class="form-control" name="entrada" id="entrada" value="{{ entrada }}" list="entrada_sugerencias">
-              </div>
-              <div class="mb-3">
-                <label for="fondo" class="form-label">Fondo</label>
-                <input type="text" class="form-control" name="fondo" id="fondo" value="{{ fondo }}" list="fondo_sugerencias">
-              </div>
-            </div>
-            <!-- Plato Cena (solo si cena está ON) -->
-            <div id="bloqueCena">
-              <div class="mb-3">
-                <label for="plato_cena" class="form-label">Cena</label>
-                <input type="text" class="form-control" name="plato_cena" id="plato_cena" value="{{ plato_cena }}" list="plato_cena_sugerencias">
-              </div>
+          <div id="bloqueAlmuerzo">
+            <div class="mb-3">
+              <label for="entrada" class="form-label fw-semibold text-primary border-start border-3 border-primary ps-3">Entrada</label>
+              <input type="text" class="form-control {% if modo_lectura %}bg-light border-0{% endif %}" name="entrada" id="entrada" value="{{ entrada }}" list="entrada_sugerencias" {% if modo_lectura %}disabled{% endif %}>
             </div>
             <div class="mb-3">
-            <label for="obs_pedido" class="form-label">Observación del pedido</label>
-            <textarea class="form-control" name="obs_pedido" id="obs_pedido" rows="2">{{ obs_pedido }}</textarea>
+              <label for="fondo" class="form-label fw-semibold text-primary border-start border-3 border-primary ps-3">Fondo</label>
+              <input type="text" class="form-control {% if modo_lectura %}bg-light border-0{% endif %}" name="fondo" id="fondo" value="{{ fondo }}" list="fondo_sugerencias" {% if modo_lectura %}disabled{% endif %}>
+            </div>
           </div>
+          <div id="bloqueCena">
+            <div class="mb-3">
+              <label for="plato_cena" class="form-label fw-semibold text-primary border-start border-3 border-primary ps-3">Cena</label>
+              <input type="text" class="form-control {% if modo_lectura %}bg-light border-0{% endif %}" name="plato_cena" id="plato_cena" value="{{ plato_cena }}" list="plato_cena_sugerencias" {% if modo_lectura %}disabled{% endif %}>
+            </div>
+          </div>
+          {% if not modo_lectura or obs_pedido %}
+            <div class="mb-3">
+              <label for="obs_pedido" class="form-label fw-semibold text-primary border-start border-3 border-primary ps-3">Observación del pedido</label>
+              <textarea class="form-control {% if modo_lectura %}bg-light border-0{% endif %}" name="obs_pedido" id="obs_pedido" rows="2" {% if modo_lectura %}disabled{% endif %}>{{ obs_pedido }}</textarea>
+            </div>
+          {% endif %}
         </div>
       </div>
     </div>
+    {% endif %}
 
+    {% if not feriado and (entrega[0] or entrega[1] or entrega[2] or not modo_lectura) %}
     <!-- Entrega -->
     <div class="col-md-6">
       <div class="card shadow-sm border-success">
         <div class="card-header bg-success text-white">Entrega</div>
         <div class="card-body">
           <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" name="entregado_almuerzo" id="entregado_almuerzo" {% if entrega[0] %}checked{% endif %}>
+            <input class="form-check-input" type="checkbox" name="entregado_almuerzo" id="entregado_almuerzo" {% if entrega[0] %}checked{% endif %} {% if modo_lectura %}disabled{% endif %}>
             <label class="form-check-label fw-bold text-success" for="entregado_almuerzo">Almuerzo entregado</label>
           </div>
           <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" name="entregado_cena" id="entregado_cena" {% if entrega[1] %}checked{% endif %}>
+            <input class="form-check-input" type="checkbox" name="entregado_cena" id="entregado_cena" {% if entrega[1] %}checked{% endif %} {% if modo_lectura %}disabled{% endif %}>
             <label class="form-check-label fw-bold text-success" for="entregado_cena">Cena entregada</label>
           </div>
-          <div class="mb-3">
-            <label for="obs_entrega" class="form-label">Observación de la entrega</label>
-            <textarea class="form-control" name="obs_entrega" id="obs_entrega" rows="2">{{ entrega[2] }}</textarea>
-          </div>
+          {% if not modo_lectura or entrega[2] %}
+            <div class="mb-3">
+              <label for="obs_entrega" class="form-label fw-semibold text-primary border-start border-3 border-primary ps-3">Observación de la entrega</label>
+              <textarea class="form-control {% if modo_lectura %}bg-light border-0{% endif %}" name="obs_entrega" id="obs_entrega" rows="2" {% if modo_lectura %}disabled{% endif %}>{{ entrega[2] }}</textarea>
+            </div>
+          {% endif %}
         </div>
       </div>
     </div>
     {% endif %}
   </div>
 
-  <div class="mt-4 d-flex justify-content-between">
-    <a href="/semana" class="btn btn-outline-secondary">← Volver a semana</a>
-    <button type="submit" class="btn btn-primary" id="guardarBtn" style="display:none;">Guardar</button>
-    <button type="submit" class="btn btn-outline-primary" name="accion" value="guardar_siguiente" id="guardarSiguienteBtn" style="display:none;">Guardar y editar siguiente →</button>
+  <div class="mt-4 d-flex justify-content-between align-items-center">
+    <a href="{{ url_for('dia.ver_dia', fecha=fecha_ant) }}" class="btn btn-outline-secondary">← Día anterior</a>
+
+    {% if modo_lectura %}
+      <a href="{{ url_for('dia.editar_dia', fecha=fecha) }}" class="btn btn-warning">Editar este día</a>
+    {% else %}
+      <div>
+        <button type="submit" class="btn btn-primary me-2" id="guardarBtn" style="display:none;">Guardar</button>
+        <button type="submit" class="btn btn-outline-primary" name="accion" value="guardar_siguiente" id="guardarSiguienteBtn" style="display:none;">Guardar y editar siguiente →</button>
+      </div>
+    {% endif %}
+
+    <a href="{{ url_for('dia.ver_dia', fecha=fecha_sig) }}" class="btn btn-outline-secondary">Día siguiente →</a>
   </div>
+
   <datalist id="entrada_sugerencias"></datalist>
   <datalist id="fondo_sugerencias"></datalist>
   <datalist id="plato_cena_sugerencias"></datalist>

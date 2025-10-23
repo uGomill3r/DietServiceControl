@@ -29,7 +29,7 @@
       {% for p in pedidos %}
         <tr data-tipo="{{ 'almuerzo' if p.almuerzo else '' }}{{ ' cena' if p.cena else '' }}">
           <td>
-            <a href="/editar_dia?fecha={{ p.fecha_raw }}" class="fw-bold text-decoration-none">
+            <a href="/ver_dia?fecha={{ p.fecha_raw }}" class="fw-bold text-decoration-none">
           {{ p.fecha_fmt }}
             </a>
           </td>
